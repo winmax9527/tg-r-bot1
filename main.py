@@ -49,25 +49,29 @@ async def get_final_url(update: Update, context) -> None:
     domain_a = None
     final_url_b = None
     
-    # ⭐️ 关键：Chromium 启动参数，最大化兼容 Render 容器
+    # ⭐️ 最终优化：最精简的 Chromium 启动参数，只保留必需的
     CHROMIUM_ARGS = [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage', # 解决 /dev/shm 内存不足问题
-        '--disable-accelerated-mo2d-canvas',
-        '--no-zygote',
-        '--single-process', # 强制单进程模式，减少资源消耗 (可能影响稳定性)
-        '--strict-min-version' # 仅启动最小功能集
+        '--single-process', # 强制单进程模式，减少资源消耗
+        '--disable-gpu', # 禁用 GPU 加速
+        '--disable-software-rasterizer', # 禁用软件光栅化
+        '--disable-extensions', # 禁用扩展
+        '--mute-audio', # 禁用音频
+        '--window-size=1280,1024' # 设定固定窗口大小
     ]
     
-    # ⭐️ 新增：尝试从环境变量获取 Chromium 路径
-    PLAYWRIGHT_EXECUTABLE_PATH = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    # ⭐️ 最终优化：直接使用 Render 容器中 Playwright 依赖的路径
+    # 这比使用环境变量更直接
+    PLAYWRIGHT_EXECUTABLE_PATH = "/usr/bin/chromium" 
     
     try:
         # ----------------------------------------------
         # 第一步: Requests 请求 API 获取 A 域名
         # ----------------------------------------------
         logger.info(f"Step 1: Requesting API URL: {API_URL}")
+        # 保持 5 秒超时不变
         api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
         api_response.raise_for_status() 
         
@@ -86,24 +90,24 @@ async def get_final_url(update: Update, context) -> None:
         # 第二步: Playwright 追踪 A 域名到 B 域名 (异步)
         # ----------------------------------------------
         async with async_playwright() as p:
-            logger.info("Step 3: Attempting to launch Chromium with compatibility args...")
+            logger.info("Step 3: Attempting to launch Chromium with minimal args...")
             
             launch_options = {
                 'headless': True, 
+                # 保持启动超时时间 20 秒
                 'timeout': 20000,
-                'args': CHROMIUM_ARGS 
+                'args': CHROMIUM_ARGS,
+                # ⭐️ 关键修改：强制设置执行路径
+                'executable_path': PLAYWRIGHT_EXECUTABLE_PATH
             }
             
-            # ⭐️ 关键修改：如果设置了路径，则使用该路径
-            if PLAYWRIGHT_EXECUTABLE_PATH:
-                launch_options['executable_path'] = PLAYWRIGHT_EXECUTABLE_PATH
-                logger.info(f"Using executable path: {PLAYWRIGHT_EXECUTABLE_PATH}")
-                
+            logger.info(f"Using executable path: {PLAYWRIGHT_EXECUTABLE_PATH}")
+            
             browser = await p.chromium.launch(**launch_options)
             page = await browser.new_page()
 
-            # 🚀 关键修改：从 "networkidle" 改为 "domcontentloaded"，加速导航
-            await page.goto(domain_a, wait_until="domcontentloaded", timeout=30000) 
+            # 🚀 最终优化：将 goto 超时增加到 60 秒，以应对慢速启动或跳转
+            await page.goto(domain_a, wait_until="domcontentloaded", timeout=60000) 
 
             final_url_b = page.url
             
