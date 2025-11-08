@@ -161,8 +161,8 @@ def initialize_bots():
                 )
             )
 
-            # 启动 Bot 的后台处理循环
-            asyncio.create_task(application.run_polling()) # 使用 run_polling 在后台运行，但只处理 queue
+            # 启动 Bot 的后台处理循环 (禁用 Polling 并在后台运行)
+            asyncio.create_task(application.run_polling(poll_interval=None))
             
             # 存储 Application 实例
             APPLICATIONS[path] = application
