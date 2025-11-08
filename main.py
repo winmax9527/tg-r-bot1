@@ -11,6 +11,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- 模拟浏览器头部信息 ---
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' # 增加语言头，更像真人
+}
+
 # --- 2. 核心功能函数 ---
 async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # !!! 最终修正！！！请将此处的域名替换为【会发生跳转的原始域名 A】！！！
@@ -19,8 +26,13 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("正在为您获取最终动态链接，请稍候...")
     
     try:
-        # 使用 requests 库发起 GET 请求并自动跟踪重定向
-        response = requests.get(DOMAIN_A, allow_redirects=True, timeout=10)
+        # 使用 requests 库发起 GET 请求，并传入 HEADERS 模拟浏览器行为
+        response = requests.get(
+            DOMAIN_A, 
+            allow_redirects=True, 
+            timeout=10,
+            headers=HEADERS # <-- 传入模拟头部
+        )
         
         # 检查状态码，200 表示成功获取，300-399 表示重定向已完成
         if 200 <= response.status_code < 400:
