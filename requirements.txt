@@ -1,3 +1,5 @@
 python-telegram-bot[webhooks]
 requests
 playwright
+fastapi
+uvicorn # 用于在 Render 上运行 FastAPI
