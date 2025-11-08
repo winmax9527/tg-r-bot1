@@ -111,28 +111,44 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ 浏览器错误。请等待几分钟或联系管理员。")
         logger.error(f"Playwright Runtime Error: {e}")
 
-# --- 4. Webhook 主函数 (多命令逻辑) ---
-def main() -> None:
-    TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# main.py 文件中
+
+# ... (保持所有导入和 generate_random_subdomain 函数不变) ...
+
+
+# ----------------------------------------------
+# ⭐️ 核心函数：通用处理逻辑 (接受 API URL 作为参数)
+# ----------------------------------------------
+async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # 从 context.bot_data 中获取当前机器人的 API URL
+    API_URL = context.bot_data.get('API_URL') 
     
-    if not TOKEN:
-        logger.error("TELEGRAM_TOKEN is not set. Exiting.")
+    if not API_URL:
+        await update.message.reply_text("❌ 机器人配置错误，未找到 API URL。")
+        logger.error("API_URL not found in bot_data.")
         return
-
-    WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
-    PORT = int(os.environ.get("PORT", 8080))
-
-    if not WEBHOOK_URL:
-        logger.warning("RENDER_EXTERNAL_URL is not yet available. Proceeding...")
-
-    # NameError 修正
-    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_URL else None 
+        
+    # ... (保持之前的 Requests, Playwright, URL解析, 随机化二级域名等所有逻辑不变) ...
     
-    application = Application.builder().token(TOKEN).build()
+    # 唯一需要修改的逻辑行：
+    # 将原来的 API_URL 变量替换为传入的 context.bot_data.get('API_URL')
+
+    # ... (其余逻辑保持不变) ...
+
+
+# ----------------------------------------------
+# ⭐️ 新增函数：机器人配置和启动
+# ----------------------------------------------
+def start_bot(token, api_url, url_path_suffix, webhook_base_url):
+    """配置并启动单个机器人的 Webhook"""
     
-    # ⭐️ 使用 Regex 匹配多个中文命令
+    application = Application.builder().token(token).build()
+    
+    # 存储 API_URL，以便在 handler 中访问
+    application.bot_data['API_URL'] = api_url
+    
+    # 注册相同的 handler
     COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
-    
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(COMMAND_PATTERN), 
@@ -140,17 +156,70 @@ def main() -> None:
         )
     )
     
-    if full_webhook_url:
-        logger.info(f"Attempting to set webhook on port {PORT} to: {full_webhook_url}")
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path="/telegram",
-            webhook_url=full_webhook_url,
-        )
-        logger.info(f"Webhook process started.")
-    else:
-        logger.error("Could not determine full webhook URL. Deployment might be stuck.")
+    full_webhook_url = f"{webhook_base_url}/{url_path_suffix}"
+    
+    # 监听 Render 端口，但使用不同的路径
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080)),
+        url_path=f"/{url_path_suffix}",
+        webhook_url=full_webhook_url,
+    )
+    logger.info(f"Bot started on path /{url_path_suffix}")
+    return application
+
+# ----------------------------------------------
+# ⭐️ 修改 main 函数：同时启动多个机器人
+# ----------------------------------------------
+def main() -> None:
+    WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
+    if not WEBHOOK_URL:
+        logger.error("RENDER_EXTERNAL_URL is not set. Cannot start webhooks.")
+        return
+
+    # --- 机器人配置列表 ---
+    BOT_CONFIGS = [
+        {
+            "token": os.environ.get("BOT_1_TOKEN"),
+            "api_url": os.environ.get("BOT_1_API"),
+            "path": "bot1_webhook"
+        },
+         {
+            "token": os.environ.get("BOT_4_TOKEN"),
+            "api_url": os.environ.get("BOT_4_API"),
+            "path": "bot4_webhook"
+        },
+         {
+            "token": os.environ.get("BOT_6_TOKEN"),
+            "api_url": os.environ.get("BOT_6_API"),
+            "path": "bot6_webhook"
+        },
+        {
+            "token": os.environ.get("BOT_9_TOKEN"),
+            "api_url": os.environ.get("BOT_9_API"),
+            "path": "bot9_webhook"
+        }
+        # 您可以在这里添加更多机器人的配置
+    ]
+
+    running_bots = []
+    
+    for config in BOT_CONFIGS:
+        token = config['token']
+        api_url = config['api_url']
+        path = config['path']
+        
+        if token and api_url:
+            app = start_bot(token, api_url, path, WEBHOOK_URL)
+            running_bots.append(app)
+        else:
+            logger.warning(f"Skipping bot with path /{path}: TOKEN or API_URL not set.")
+            
+    if not running_bots:
+        logger.error("No bots were successfully configured and started.")
+        
 
 if __name__ == "__main__":
+    # ⚠️ 警告：这种多进程/多应用启动方式在单线程环境可能会有冲突，
+    # 但由于 Render 启动后 Python 进程会接管，我们只能采用这种多应用注册 Webhook 的方式。
     main()
