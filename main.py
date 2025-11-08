@@ -30,6 +30,7 @@ def generate_random_subdomain(min_len=3, max_len=8):
 # ⭐️ 核心功能函数 (API 获取 A + 静态解析 B + 随机化)
 # -------------------------------------------------------------
 async def get_final_url(update: Update, context) -> None:
+    # 直接使用单机器人的 API_URL
     API_URL = context.application.bot_data.get('API_URL')
     
     if not API_URL:
@@ -74,7 +75,6 @@ async def get_final_url(update: Update, context) -> None:
         html_content = page_response.text
         
         # 1. 尝试查找 JS 跳转 (如 window.location.href = '...' 或 location.replace)
-        # 匹配 location.href = 'URL' 或 location.replace('URL')
         js_match = re.search(r'location\.(?:href|replace)\s*=\s*["\'](.*?)["\']', html_content)
         if js_match:
             final_url_b = js_match.group(1)
@@ -87,10 +87,18 @@ async def get_final_url(update: Update, context) -> None:
                 final_url_b = meta_match.group(1).strip()
                 logger.info(f"Found Meta Refresh redirect: {final_url_b}")
 
-        # 3. 如果没找到静态跳转，使用原始 URL 作为备选
+        # 3. 新增：尝试查找 HTML 中的下载链接 (找第一个包含 http/https 的 href 链接，通常是下载链接)
+        if not final_url_b:
+            # 匹配 <a href="http/https://..."> 标签，或者 <iframe src="http/https://...">
+            link_match = re.search(r'(?:href|src)\s*=\s*["\'](http[s]?://[^"\']+)["\']', html_content, re.IGNORECASE)
+            if link_match:
+                final_url_b = link_match.group(1)
+                logger.info(f"Found standard HTML link/src: {final_url_b}")
+
+        # 4. 如果仍未找到，使用原始 URL 作为备选
         if not final_url_b:
             final_url_b = domain_a
-            logger.info("No static redirect found. Using Domain A as final URL.")
+            logger.info("No static redirect or standard link found. Using Domain A as final URL.")
         
         
         # ----------------------------------------------
@@ -101,10 +109,11 @@ async def get_final_url(update: Update, context) -> None:
         if not final_url_b.startswith("http"):
              # 使用 domain_a 的协议和网络位置来构造一个完整的 URL
             base_url = urlparse(domain_a)
-            final_url_b = urlunparse(base_url._replace(path=final_url_b))
+            final_url_b = urlunparse(base_url._replace(path=urlparse(final_url_b).path, query=urlparse(final_url_b).query))
+
 
         
-        if final_url_b:
+        if final_url_b and final_url_b != domain_a: # 只有找到 B 链接才执行随机化，否则跳过
             parsed_url = urlparse(final_url_b)
             netloc_parts = parsed_url.netloc.split('.')
             
@@ -119,9 +128,13 @@ async def get_final_url(update: Update, context) -> None:
             else:
                 await update.message.reply_text(f"✅ 本次最新下载链接是：\n{final_url_b}")
                 logger.warning(f"URL structure not suitable for subdomain replacement. Returning original URL.")
-        else:
-            await update.message.reply_text(f"⚠️ 未能检测到有效跳转，返回原始链接：\n{domain_a}")
+        elif final_url_b == domain_a:
+            # 如果解析失败，返回原始 A 域名，并加上一个警告信息
+            await update.message.reply_text(f"⚠️ 未能检测到有效跳转，返回原始链接（已随机化）:\n{domain_a}")
             logger.warning(f"Static parsing failed to find redirect. Final URL: {domain_a}")
+        else:
+             await update.message.reply_text(f"⚠️ 发生了未知解析错误，返回原始链接：\n{domain_a}")
+             logger.warning(f"Unexpected parsing state. Final URL: {domain_a}")
 
 
     except requests.exceptions.RequestException as req_err:
@@ -133,78 +146,58 @@ async def get_final_url(update: Update, context) -> None:
 
 
 # -------------------------------------------------------------
-# ⭐️ Bot 配置和初始化 (保持不变)
+# ⭐️ 单 Bot 配置和初始化
 # -------------------------------------------------------------
-# 机器人配置列表 (使用环境变量)
-BOT_CONFIGS = [
-    {
-        "token": os.environ.get("BOT_1_TOKEN"),
-        "api_url": os.environ.get("BOT_1_API"),
-        "path": "bot1_webhook"
-    },
-    {
-        "token": os.environ.get("BOT_4_TOKEN"),
-        "api_url": os.environ.get("BOT_4_API"),
-        "path": "bot4_webhook"
-    },
-    {
-        "token": os.environ.get("BOT_6_TOKEN"),
-        "api_url": os.environ.get("BOT_6_API"),
-        "path": "bot6_webhook"
-    },
-    {
-        "token": os.environ.get("BOT_9_TOKEN"),
-        "api_url": os.environ.get("BOT_9_API"),
-        "path": "bot9_webhook"
-    }
-]
 
-APPLICATIONS = {}
+BOT_TOKEN = os.environ.get("BOT_1_TOKEN") # 仅使用 BOT_1 的 TOKEN
+API_URL = os.environ.get("BOT_1_API")     # 仅使用 BOT_1 的 API
+WEBHOOK_PATH = "webhook"                  # 简化的 webhook 路径
 
-async def initialize_bots(): 
-    """初始化并启动所有 Bot 的后台线程"""
-    for config in BOT_CONFIGS:
-        token = config['token']
-        api_url = config['api_url'] 
-        path = config['path']
+# 单机器人实例
+application = None
 
-        if token and api_url:
-            application = Application.builder().token(token).build()
-            application.bot_data['API_URL'] = api_url
-            
-            COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
-            application.add_handler(
-                MessageHandler(
-                    filters.TEXT & filters.Regex(COMMAND_PATTERN), 
-                    get_final_url
-                )
+async def initialize_single_bot(): 
+    """初始化并启动单个 Bot"""
+    global application
+
+    if BOT_TOKEN and API_URL:
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.bot_data['API_URL'] = API_URL
+        
+        COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
+        application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.Regex(COMMAND_PATTERN), 
+                get_final_url
             )
+        )
 
-            await application.initialize() 
-            asyncio.create_task(application.start()) 
-            
-            APPLICATIONS[path] = application
-            logger.info(f"Initialized bot on path /{path}")
-        else:
-            logger.warning(f"Skipping bot with path /{path}: TOKEN or API_URL not set.")
+        await application.initialize() 
+        asyncio.create_task(application.start()) 
+        logger.info(f"Initialized single bot on path /{WEBHOOK_PATH}")
+    else:
+        logger.error(f"BOT_1_TOKEN or BOT_1_API not set. Cannot run single bot.")
 
 app = FastAPI()
 
 @app.get("/")
 async def root():
     """Render Health Check endpoint."""
-    return {"status": "ok", "message": "Bot service is running"}
+    if application:
+        return {"status": "ok", "message": f"Bot service running on /{WEBHOOK_PATH}"}
+    else:
+        return {"status": "error", "message": "Bot not initialized due to missing env vars"}
+
 
 @app.on_event("startup")
 async def startup_event():
-    await initialize_bots()
+    await initialize_single_bot()
 
-@app.post("/{path_suffix}")
-async def telegram_webhook(path_suffix: str, request: Request):
-    application = APPLICATIONS.get(path_suffix)
+@app.post(f"/{WEBHOOK_PATH}")
+async def telegram_webhook(request: Request):
     if not application:
-        logger.warning(f"Webhook received for unknown path: /{path_suffix}")
-        return {"status": "error", "message": "Unknown path"}
+        logger.error("Application not initialized.")
+        return {"status": "error", "message": "Application not initialized"}
 
     try:
         data = await request.json()
@@ -212,9 +205,11 @@ async def telegram_webhook(path_suffix: str, request: Request):
         await application.update_queue.put(update)
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Error processing update for /{path_suffix}: {e}")
+        logger.error(f"Error processing update: {e}")
         return {"status": "error", "message": str(e)} 
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", 8080))
+    # 注意：如果您的 Render Build Command 使用了 'main:app'，您需要将此文件命名为 main.py 
+    # 或者将 Render Start Command 更改为 'uvicorn single_bot_app:app --host 0.0.0.0 --port $PORT'
     uvicorn.run(app, host="0.0.0.0", port=PORT)
