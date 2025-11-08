@@ -121,9 +121,19 @@ BOT_CONFIGS = [
         "path": "bot1_webhook"
     },
     {
-        "token": os.environ.get("BOT_2_TOKEN"),
-        "api_url": os.environ.get("BOT_2_API"),
-        "path": "bot2_webhook"
+        "token": os.environ.get("BOT_4_TOKEN"),
+        "api_url": os.environ.get("BOT_4_API"),
+        "path": "bot4_webhook"
+    },
+    {
+        "token": os.environ.get("BOT_6_TOKEN"),
+        "api_url": os.environ.get("BOT_6_API"),
+        "path": "bot6_webhook"
+    },
+    {
+        "token": os.environ.get("BOT_9_TOKEN"),
+        "api_url": os.environ.get("BOT_9_API"),
+        "path": "bot9_webhook"
     }
     # 根据需要添加更多机器人
 ]
