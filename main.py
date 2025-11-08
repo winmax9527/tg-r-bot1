@@ -4,7 +4,7 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# --- 1. 日志配置（已修复 NameError） ---
+# --- 1. 日志配置 ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
     level=logging.INFO
@@ -13,19 +13,16 @@ logger = logging.getLogger(__name__)
 
 # --- 2. 核心功能函数 ---
 async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # !!! 修正此处 !!! 这是会发生跳转的【初始域名 A】
-    # 请将其替换为您的实际初始域名！
+    # !!! 最终修正！！！请将此处的域名替换为【会发生跳转的原始域名 A】！！！
     DOMAIN_A = "https://owzmz.ivqrrox.com/37mC45B/mdgxmzlkzt" 
     
     await update.message.reply_text("正在为您获取最终动态链接，请稍候...")
     
     try:
         # 使用 requests 库发起 GET 请求并自动跟踪重定向
-        # allow_redirects=True 确保库会追踪到最终的域名 B
         response = requests.get(DOMAIN_A, allow_redirects=True, timeout=10)
         
-        # 检查是否成功
-        # 状态码 200 表示成功获取，300-399 表示重定向已完成
+        # 检查状态码，200 表示成功获取，300-399 表示重定向已完成
         if 200 <= response.status_code < 400:
             # response.url 就是最终重定向后的 URL (域名 B)
             final_url_b = response.url
