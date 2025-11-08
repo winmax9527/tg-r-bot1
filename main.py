@@ -29,36 +29,43 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     final_url_b = None
     
     try:
-        # ----------------------------------------------
+       # ----------------------------------------------
         # 第一步: Requests 请求 API 获取 A 域名
         # ----------------------------------------------
         logger.info(f"Step 1: Requesting API URL: {API_URL}")
         api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
         api_response.raise_for_status() 
         
-        # --- 增强的解析逻辑 ---
-        content_type = api_response.headers.get('Content-Type', '')
+        # --- 增强的最终解析逻辑 ---
+        api_text = api_response.text.strip()
+        domain_a = None
         
-        if 'application/json' in content_type or api_response.text.strip().startswith('{'):
-            # 尝试解析 JSON
+        # 1. 尝试解析 JSON
+        try:
             data = api_response.json()
-            # 假设 A 域名位于 'data' 键下的 'url' 键
+            # 尝试从嵌套结构中获取 URL (data.url)
             domain_a = data.get('data', {}).get('url')
-        else:
-            # 如果不是 JSON (可能是纯文本 URL)，直接使用响应体文本
-            domain_a = api_response.text.strip()
-            
+            if not domain_a:
+                # 尝试从顶级结构中获取 URL (url)
+                domain_a = data.get('url')
+        except json.JSONDecodeError:
+            # 2. 如果不是 JSON，尝试直接使用响应体作为 URL
+            if api_text.startswith('http') or api_text.startswith('https'):
+                domain_a = api_text
+            # 否则，无法确定格式，失败
         
+        # 确保 A 域名是一个非空字符串
         if not domain_a:
-             await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到 A 域名。")
+             await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到有效的 A 域名。响应体: {api_text}")
              logger.error(f"API response missing A domain. Response: {api_response.text}")
              return
 
         logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}")
         
         # ----------------------------------------------
-        # 第二步: Playwright 追踪 A 域名到 B 域名
+        # 第二步: Playwright 追踪 A 域名到 B 域名 (保持不变)
         # ----------------------------------------------
+        # ... Playwright 逻辑 ...
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, timeout=15000)
             page = await browser.new_page()
