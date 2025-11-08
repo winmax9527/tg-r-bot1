@@ -36,27 +36,16 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
         api_response.raise_for_status() 
         
-        # --- 最终确定解析逻辑：直接使用响应文本 ---
-        # 认为 API 接口直接返回了 A 域名的纯文本
-        domain_a = api_response.text.strip()
+        # --- 最终确定的、精确的解析逻辑 ---
+        data = api_response.json()
+
+        # 根据截图，A 域名直接位于顶级键 "data" 下
+        domain_a = data.get('data')
+            
         
-        # 如果 API 返回的是 JSON，但我们不知道结构，则尝试暴力解析
-        if domain_a.startswith('{') and domain_a.endswith('}'):
-            try:
-                data = json.loads(api_response.text)
-                # 假设 A 域名位于 'data' 键下的 'url' 键 (最常见结构)
-                domain_a = data.get('data', {}).get('url')
-                if not domain_a:
-                    # 尝试从顶级结构中获取
-                    domain_a = data.get('url')
-            except json.JSONDecodeError:
-                # 如果是无效 JSON，则使用原始文本，但这可能不是 URL
-                logger.warning("API response looked like JSON but was invalid.")
-                
-        # 确保 A 域名是一个非空字符串且看起来像一个 URL (简单的 http/s 检查)
-        if not domain_a or not (domain_a.startswith('http')):
-             await update.message.reply_text(f"❌ 链接获取失败：API 返回无效链接。请确认 API 格式。响应: {api_response.text}")
-             logger.error(f"API response not a valid URL. Response: {api_response.text}")
+        if not domain_a or not isinstance(domain_a, str):
+             await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到 A 域名或格式错误。")
+             logger.error(f"API response format incorrect. Data retrieved: {domain_a}")
              return
 
         logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}")
@@ -64,7 +53,7 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # ----------------------------------------------
         # 第二步: Playwright 追踪 A 域名到 B 域名 (保持不变)
         # ----------------------------------------------
-        # ... Playwright 逻辑 ...
+        # ... Playwright 逻辑 (保持不变) ...
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, timeout=15000)
             page = await browser.new_page()
