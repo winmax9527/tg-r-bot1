@@ -48,6 +48,15 @@ async def get_final_url(update: Update, context) -> None:
     domain_a = None
     final_url_b = None
     
+    # ⭐️ 关键：Chromium 启动参数，用于解决容器环境下的权限/资源问题
+    CHROMIUM_ARGS = [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', # 解决 /dev/shm 内存不足问题
+        '--disable-accelerated-mo2d-canvas',
+        '--no-zygote'
+    ]
+    
     try:
         # ----------------------------------------------
         # 第一步: Requests 请求 API 获取 A 域名
@@ -71,10 +80,12 @@ async def get_final_url(update: Update, context) -> None:
         # 第二步: Playwright 追踪 A 域名到 B 域名 (异步)
         # ----------------------------------------------
         async with async_playwright() as p:
-            # 增加 Playwright 启动超时时间
-            # ⚠️ 注意: 在 Playwright 启动时，如果浏览器依赖缺失，
-            # 这里的 launch() 调用将抛出异常。
-            browser = await p.chromium.launch(headless=True, timeout=20000) 
+            # 增加 Playwright 启动超时时间，并加入启动参数
+            browser = await p.chromium.launch(
+                headless=True, 
+                timeout=20000,
+                args=CHROMIUM_ARGS # 🚀 关键修改：添加兼容性参数
+            ) 
             page = await browser.new_page()
 
             # 增加导航超时时间
