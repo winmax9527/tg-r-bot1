@@ -18,7 +18,7 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # ⭐️ 步骤一：不变的 API 接口 (获取会变的 A 域名)
     API_URL = "https://ndbjz.dbgck.com/mapi/alink/zdm3nwuyym"
     
-    await update.message.reply_text("正在为您获取最新的链接，请稍候...")
+    await update.message.reply_text("正在为您获取最新下载的链接，请稍候...")
     
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -34,17 +34,21 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # ----------------------------------------------
         logger.info(f"Step 1: Requesting API URL: {API_URL}")
         api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
-        api_response.raise_for_status() # 如果状态码不是 200, 则抛出异常
+        api_response.raise_for_status() 
         
-        # 尝试解析 JSON，如果失败，则认为响应体就是纯文本 A 域名
-        try:
+        # --- 增强的解析逻辑 ---
+        content_type = api_response.headers.get('Content-Type', '')
+        
+        if 'application/json' in content_type or api_response.text.strip().startswith('{'):
+            # 尝试解析 JSON
             data = api_response.json()
-            # 假设 A 域名位于 'data' 键下的 'url' 键。
-            domain_a = data.get('data', {}).get('url') 
-        except json.JSONDecodeError:
-            # 如果不是 JSON，尝试直接将响应文本作为 A 域名
+            # 假设 A 域名位于 'data' 键下的 'url' 键
+            domain_a = data.get('data', {}).get('url')
+        else:
+            # 如果不是 JSON (可能是纯文本 URL)，直接使用响应体文本
             domain_a = api_response.text.strip()
-                    
+            
+        
         if not domain_a:
              await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到 A 域名。")
              logger.error(f"API response missing A domain. Response: {api_response.text}")
@@ -56,20 +60,17 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # 第二步: Playwright 追踪 A 域名到 B 域名
         # ----------------------------------------------
         async with async_playwright() as p:
-            # Playwright 启动逻辑，必须保留
             browser = await p.chromium.launch(headless=True, timeout=15000)
             page = await browser.new_page()
 
-            # 导航到动态获取的 A 域名
             await page.goto(domain_a, wait_until="networkidle", timeout=30000) 
 
-            # 获取最终的 B 域名
             final_url_b = page.url
             
             await browser.close() 
 
             if final_url_b and final_url_b != domain_a:
-                await update.message.reply_text(f"✅ 本次最新的下载链接是：\n{final_url_b}")
+                await update.message.reply_text(f"✅ 本次获取的最新下载链接是：\n{final_url_b}")
                 logger.info(f"Success! Final URL B: {final_url_b}")
             else:
                 await update.message.reply_text(f"⚠️ Playwright 未检测到跳转。可能 A 域名返回静态页。当前URL: {final_url_b}")
@@ -79,14 +80,13 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ API 请求失败，出现网络错误或超时。")
         logger.error(f"API Request Error: {e}")
     except json.JSONDecodeError:
-        await update.message.reply_text(f"❌ API 返回的不是有效的 JSON 格式。")
+        await update.message.reply_text(f"❌ API 返回的不是有效的 JSON 格式。请检查 API 接口。")
         logger.error(f"JSON Decode Error in API response.")
     except Exception as e:
-        # 捕获所有 Playwright 启动和运行时错误
         await update.message.reply_text(f"❌ Playwright 浏览器错误。请等待几分钟或联系管理员。")
         logger.error(f"Playwright Runtime Error: {e}")
 
-# --- 3. Webhook 主函数 (多命令逻辑) ---
+# --- 3. Webhook 主函数 (已修复 NameError) ---
 def main() -> None:
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     
@@ -100,12 +100,11 @@ def main() -> None:
     if not WEBHOOK_URL:
         logger.warning("RENDER_EXTERNAL_URL is not yet available. Proceeding...")
 
-    # main.py 中正确的行
-    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_URL else None
+    # 修正 NameError: WEBHOOK_URL 必须是全大写
+    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_URL else None 
     
     application = Application.builder().token(TOKEN).build()
     
-    # ⭐️ 使用 Regex 匹配多个中文命令和 /start_check
     COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
     
     application.add_handler(
