@@ -145,11 +145,15 @@ APPLICATIONS = {}
 
 # ... (保持 BOT_CONFIGS 列表不变) ...
 
-def initialize_bots():
+# main.py 文件中
+
+# 🚨 确保这里添加了 'async' 关键字
+async def initialize_bots(): 
     """初始化并启动所有 Bot 的后台线程"""
     for config in BOT_CONFIGS:
         token = config['token']
-        api_url = config['api_url']
+        # 键名已修复为 'api_url'
+        api_url = config['api_url'] 
         path = config['path']
 
         if token and api_url:
@@ -159,8 +163,11 @@ def initialize_bots():
             # 注册 handler (保持不变)
             # ... (CommandHandler 和 MessageHandler 的注册代码保持不变) ...
 
-            # ⭐️ 核心修改：使用 start() 方法，而不是 run_polling()
-            # 这样 telegram.ext 就不会尝试启动或关闭事件循环
+            # ⭐️ 关键修改 1: 必须在启动前执行异步初始化
+            await application.initialize() 
+            
+            # ⭐️ 关键修改 2: 启动后台任务
+            # 我们只需要 application.start()，不需要 run_polling
             asyncio.create_task(application.start()) 
             
             # 存储 Application 实例
@@ -169,25 +176,18 @@ def initialize_bots():
         else:
             logger.warning(f"Skipping bot with path /{path}: TOKEN or API_URL not set.")
 
-
 # --- FastAPI 初始化 ---
 app = FastAPI()
 
 # ⭐️ 核心修改：使用 FastAPI 的生命周期事件来启动异步任务
 # main.py 文件中
 
+# main.py 文件中 (startup_event 函数的定义)
+
 @app.on_event("startup")
 async def startup_event():
-    # 确保在异步事件循环启动后才初始化 bots
-    # ⚠️ 注意: 由于 initialize_bots 现在调用的是 application.start()，
-    # 我们需要在启动后手动设置 webhook
-    initialize_bots()
-    # 这一步是确保所有 Bot 在启动后，它们的 Webhook 状态被正确设置 (可选，但推荐)
-    # for application in APPLICATIONS.values():
-    #    await application.bot.set_webhook(url=...) # 除非您想在启动时自动设置
-    #    pass
-# ... (保留 @app.post 路由函数) ...
-
+    # ⭐️ 必须 await：等待 initialize_bots 完成所有初始化
+    await initialize_bots()
 # ----------------------------------------------
 # ⭐️ Webhook 路由函数 (处理所有 POST 请求)
 # ----------------------------------------------
