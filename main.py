@@ -73,7 +73,7 @@ def main() -> None:
     # -----------------------------------------------------------------
     # ⭐️ 核心修改：使用 Regex 匹配多个中文命令和 /start_check
     # r"^(...)$" 确保用户输入的文本必须完全匹配其中一个命令
-    COMMAND_PATTERN = r"^(安卓|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
+    COMMAND_PATTERN = r"^(地址|链接|安卓|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
     
     application.add_handler(
         MessageHandler(
