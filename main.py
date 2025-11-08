@@ -38,6 +38,7 @@ async def get_final_url(update: Update, context) -> None:
         logger.error("API_URL not found in application.bot_data.")
         return
         
+    # 立即发送回复，防止 Playwright 启动慢导致 Telegram 重试
     await update.message.reply_text("正在为您获取最新下载链接，请稍候...")
     
     HEADERS = {
@@ -48,13 +49,15 @@ async def get_final_url(update: Update, context) -> None:
     domain_a = None
     final_url_b = None
     
-    # ⭐️ 关键：Chromium 启动参数，用于解决容器环境下的权限/资源问题
+    # ⭐️ 关键：Chromium 启动参数，最大化兼容 Render 容器
     CHROMIUM_ARGS = [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage', # 解决 /dev/shm 内存不足问题
         '--disable-accelerated-mo2d-canvas',
-        '--no-zygote'
+        '--no-zygote',
+        '--single-process', # 强制单进程模式，减少资源消耗 (可能影响稳定性)
+        '--strict-min-version' # 仅启动最小功能集
     ]
     
     try:
@@ -80,20 +83,23 @@ async def get_final_url(update: Update, context) -> None:
         # 第二步: Playwright 追踪 A 域名到 B 域名 (异步)
         # ----------------------------------------------
         async with async_playwright() as p:
+            logger.info("Step 3: Attempting to launch Chromium with compatibility args...")
+            
             # 增加 Playwright 启动超时时间，并加入启动参数
             browser = await p.chromium.launch(
                 headless=True, 
                 timeout=20000,
-                args=CHROMIUM_ARGS # 🚀 关键修改：添加兼容性参数
+                args=CHROMIUM_ARGS 
             ) 
             page = await browser.new_page()
 
-            # 增加导航超时时间
-            await page.goto(domain_a, wait_until="networkidle", timeout=30000) 
+            # 🚀 关键修改：从 "networkidle" 改为 "domcontentloaded"，加速导航
+            await page.goto(domain_a, wait_until="domcontentloaded", timeout=30000) 
 
             final_url_b = page.url
             
             await browser.close() 
+            logger.info("Step 4: Browser closed.")
 
             if final_url_b and final_url_b != domain_a:
                 
@@ -126,6 +132,7 @@ async def get_final_url(update: Update, context) -> None:
     # ⭐️ 关键修改：捕获 Playwright 相关的异常并转换为字符串
     except PlaywrightError as e:
         error_message = str(e)
+        # 确保回复给用户的消息包含关键错误信息，以便诊断
         await update.message.reply_text(f"❌ 浏览器组件错误。请联系管理员，错误详情：{error_message[:100]}...")
         logger.error(f"Playwright Runtime Error: {error_message}")
     except Exception as e:
@@ -202,6 +209,12 @@ async def initialize_bots():
 
 # --- FastAPI 初始化 ---
 app = FastAPI()
+
+# ⭐️ 关键修复：添加根路径健康检查路由
+@app.get("/")
+async def root():
+    """Render Health Check endpoint."""
+    return {"status": "ok", "message": "Bot service is running"}
 
 # ⭐️ 核心修复：使用 FastAPI 的生命周期事件来启动异步任务
 @app.on_event("startup")
