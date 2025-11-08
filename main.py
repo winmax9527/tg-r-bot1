@@ -1,12 +1,10 @@
 import os
 import logging
-# import requests # Playwright 方案不再需要 requests 库
-# ----------------------------------------------------
-# 确保所有 Telegram 相关的导入都在这里
+import requests # 用于请求 API
+import json # 用于解析 API 响应
 from telegram import Update 
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters # <-- 新增 MessageHandler 和 filters
-# ----------------------------------------------------
-from playwright.async_api import async_playwright
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from playwright.async_api import async_playwright # 用于处理 JS 跳转
 
 # --- 1. 日志配置 ---
 logging.basicConfig(
@@ -15,44 +13,77 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. 核心功能函数 (使用 Playwright) ---
+# --- 2. 核心功能函数 (API 获取 A + Playwright 追踪 B) ---
 async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # !!! 替换为您的【会发生跳转的原始域名 A】！！！
-    DOMAIN_A = "https://zjy3m.ivqrrox.com/KEv15JH1/zdm3nwuyym" 
+    # ⭐️ 步骤一：不变的 API 接口 (获取会变的 A 域名)
+    API_URL = "https://ndbjz.dbgck.com/mapi/alink/zdm3nwuyym"
     
-    await update.message.reply_text("正在为您获取最新的下载链接，请稍候...")
+    await update.message.reply_text("正在为您获取最新的链接，请稍候...")
     
+    HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+    }
+    
+    domain_a = None
     final_url_b = None
     
     try:
-        # 使用 async_playwright 异步启动 Playwright
+        # ----------------------------------------------
+        # 第一步: Requests 请求 API 获取 A 域名
+        # ----------------------------------------------
+        logger.info(f"Step 1: Requesting API URL: {API_URL}")
+        api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
+        api_response.raise_for_status() 
+        
+        data = api_response.json()
+        
+        # !!! 重要：这里需要根据实际 API 响应结构来修改 !!!
+        # 假设 A 域名位于 'data' 键下的 'url' 键
+        domain_a = data.get('data', {}).get('url') 
+        
+        if not domain_a:
+             await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到 A 域名。")
+             logger.error(f"API response missing A domain: {data}")
+             return
+
+        logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}")
+        
+        # ----------------------------------------------
+        # 第二步: Playwright 追踪 A 域名到 B 域名
+        # ----------------------------------------------
         async with async_playwright() as p:
-            # 使用 Chromium 浏览器，设置为无头 (headless=True)
-            # 必须使用 headless=True
-            browser = await p.chromium.launch(headless=True, timeout=15000) # 启动超时设置为15秒
+            # Playwright 启动逻辑，必须保留
+            browser = await p.chromium.launch(headless=True, timeout=15000)
             page = await browser.new_page()
 
-            # 导航到初始域名 A
-            # wait_until="networkidle" 确保页面在网络空闲时才加载完毕，以等待 JS 跳转完成
-            await page.goto(DOMAIN_A, wait_until="networkidle", timeout=30000) # 页面跳转超时设置为30秒
+            # 导航到动态获取的 A 域名
+            await page.goto(domain_a, wait_until="networkidle", timeout=30000) 
 
-            # 获取当前页面的 URL，这已经是 JS 重定向后的最终 URL
+            # 获取最终的 B 域名
             final_url_b = page.url
             
-            await browser.close() # 关闭浏览器实例
+            await browser.close() 
 
-            if final_url_b and final_url_b != DOMAIN_A:
-                await update.message.reply_text(f"✅ 本次最新下载链接是：\n{final_url_b}")
+            if final_url_b and final_url_b != domain_a:
+                await update.message.reply_text(f"✅ 本次最新的下载链接是：\n{final_url_b}")
+                logger.info(f"Success! Final URL B: {final_url_b}")
             else:
-                await update.message.reply_text(f"⚠️ 未检测到有效跳转。可能链接是静态的，或加载超时。当前URL: {final_url_b}")
+                await update.message.reply_text(f"⚠️ Playwright 未检测到跳转。可能 A 域名返回静态页。当前URL: {final_url_b}")
                 logger.warning(f"Playwright finished, but no redirect detected. Final URL: {final_url_b}")
 
+    except requests.exceptions.RequestException as e:
+        await update.message.reply_text(f"❌ API 请求失败，出现网络错误或超时。")
+        logger.error(f"API Request Error: {e}")
+    except json.JSONDecodeError:
+        await update.message.reply_text(f"❌ API 返回的不是有效的 JSON 格式。")
+        logger.error(f"JSON Decode Error in API response.")
     except Exception as e:
-        # 捕获所有 Playwright 启动和运行时错误，通常是资源不足导致
-        await update.message.reply_text(f"❌ 链接获取失败，浏览器错误。请等待几分钟或联系管理员。")
+        # 捕获所有 Playwright 启动和运行时错误
+        await update.message.reply_text(f"❌ Playwright 浏览器错误。请等待几分钟或联系管理员。")
         logger.error(f"Playwright Runtime Error: {e}")
-        
-# --- 3. Webhook 主函数 ---
+
+# --- 3. Webhook 主函数 (多命令逻辑) ---
 def main() -> None:
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     
@@ -66,23 +97,19 @@ def main() -> None:
     if not WEBHOOK_URL:
         logger.warning("RENDER_EXTERNAL_URL is not yet available. Proceeding...")
 
-    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_URL else None
+    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_url else None
     
     application = Application.builder().token(TOKEN).build()
     
-    # -----------------------------------------------------------------
-    # ⭐️ 核心修改：使用 Regex 匹配多个中文命令和 /start_check
-    # r"^(...)$" 确保用户输入的文本必须完全匹配其中一个命令
-    COMMAND_PATTERN = r"^(地址|链接|安卓|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
+    # ⭐️ 使用 Regex 匹配多个中文命令和 /start_check
+    COMMAND_PATTERN = r"^(地址|链接|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
     
     application.add_handler(
         MessageHandler(
-            # 匹配纯文本消息 并且 消息内容符合我们的正则表达式
             filters.TEXT & filters.Regex(COMMAND_PATTERN), 
             get_final_url
         )
     )
-    # -----------------------------------------------------------------
     
     if full_webhook_url:
         logger.info(f"Attempting to set webhook on port {PORT} to: {full_webhook_url}")
