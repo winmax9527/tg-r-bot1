@@ -60,6 +60,9 @@ async def get_final_url(update: Update, context) -> None:
         '--strict-min-version' # 仅启动最小功能集
     ]
     
+    # ⭐️ 新增：尝试从环境变量获取 Chromium 路径
+    PLAYWRIGHT_EXECUTABLE_PATH = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    
     try:
         # ----------------------------------------------
         # 第一步: Requests 请求 API 获取 A 域名
@@ -85,12 +88,18 @@ async def get_final_url(update: Update, context) -> None:
         async with async_playwright() as p:
             logger.info("Step 3: Attempting to launch Chromium with compatibility args...")
             
-            # 增加 Playwright 启动超时时间，并加入启动参数
-            browser = await p.chromium.launch(
-                headless=True, 
-                timeout=20000,
-                args=CHROMIUM_ARGS 
-            ) 
+            launch_options = {
+                'headless': True, 
+                'timeout': 20000,
+                'args': CHROMIUM_ARGS 
+            }
+            
+            # ⭐️ 关键修改：如果设置了路径，则使用该路径
+            if PLAYWRIGHT_EXECUTABLE_PATH:
+                launch_options['executable_path'] = PLAYWRIGHT_EXECUTABLE_PATH
+                logger.info(f"Using executable path: {PLAYWRIGHT_EXECUTABLE_PATH}")
+                
+            browser = await p.chromium.launch(**launch_options)
             page = await browser.new_page()
 
             # 🚀 关键修改：从 "networkidle" 改为 "domcontentloaded"，加速导航
