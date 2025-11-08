@@ -97,7 +97,8 @@ def main() -> None:
     if not WEBHOOK_URL:
         logger.warning("RENDER_EXTERNAL_URL is not yet available. Proceeding...")
 
-    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_url else None
+    # main.py 中正确的行
+    full_webhook_url = f"{WEBHOOK_URL}/telegram" if WEBHOOK_URL else None
     
     application = Application.builder().token(TOKEN).build()
     
