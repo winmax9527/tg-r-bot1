@@ -149,7 +149,7 @@ def initialize_bots():
     """初始化并启动所有 Bot 的后台线程"""
     for config in BOT_CONFIGS:
         token = config['token']
-        api_url = config['url']
+        api_url = config['api_url']
         path = config['path']
 
         if token and api_url:
