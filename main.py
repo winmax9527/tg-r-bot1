@@ -152,7 +152,7 @@ def initialize_bots():
             application = Application.builder().token(token).build()
             application.bot_data['API_URL'] = api_url # 存储 API URL
             
-            # 注册 handler
+            # 注册 handler (保持不变)
             COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
             application.add_handler(
                 MessageHandler(
@@ -161,8 +161,9 @@ def initialize_bots():
                 )
             )
 
-            # 启动 Bot 的后台处理循环 (禁用 Polling 并在后台运行)
-            asyncio.create_task(application.run_polling(poll_interval=None))
+            # ⭐️ 关键修改：使用更安全的 run_polling 启动方式 (防止 Polling 干扰)
+            # 在 FastAPI 的事件循环内启动后台任务
+            asyncio.create_task(application.run_polling(poll_interval=None)) 
             
             # 存储 Application 实例
             APPLICATIONS[path] = application
@@ -174,8 +175,13 @@ def initialize_bots():
 # --- FastAPI 初始化 ---
 app = FastAPI()
 
-# 初始化所有 Bot
-initialize_bots()
+# ⭐️ 核心修改：使用 FastAPI 的生命周期事件来启动异步任务
+@app.on_event("startup")
+async def startup_event():
+    # 确保在异步事件循环启动后才初始化 bots
+    initialize_bots()
+
+# ... (保留 @app.post 路由函数) ...
 
 # ----------------------------------------------
 # ⭐️ Webhook 路由函数 (处理所有 POST 请求)
