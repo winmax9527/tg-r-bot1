@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # --- 2. 核心功能函数 (使用 Playwright) ---
 async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # !!! 替换为您的【会发生跳转的原始域名 A】！！！
-    DOMAIN_A = "https://owzmz.ivqrrox.com/37mC45B/mdgxmzlkzt" 
+    DOMAIN_A = "https://zjy3m.ivqrrox.com/KEv15JH1/zdm3nwuyym" 
     
     await update.message.reply_text("正在为您获取最新的下载链接，请稍候...")
     
