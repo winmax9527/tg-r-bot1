@@ -102,7 +102,7 @@ def main() -> None:
     application = Application.builder().token(TOKEN).build()
     
     # ⭐️ 使用 Regex 匹配多个中文命令和 /start_check
-    COMMAND_PATTERN = r"^(地址|链接|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
+    COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
     
     application.add_handler(
         MessageHandler(
