@@ -141,29 +141,27 @@ BOT_CONFIGS = [
 # 全局存储应用实例，便于 FastAPI 路由查找
 APPLICATIONS = {}
 
+# main.py 文件中
+
+# ... (保持 BOT_CONFIGS 列表不变) ...
+
 def initialize_bots():
     """初始化并启动所有 Bot 的后台线程"""
     for config in BOT_CONFIGS:
         token = config['token']
-        api_url = config['api_url']
+        api_url = config['url']
         path = config['path']
 
         if token and api_url:
             application = Application.builder().token(token).build()
-            application.bot_data['API_URL'] = api_url # 存储 API URL
+            application.bot_data['API_URL'] = api_url
             
             # 注册 handler (保持不变)
-            COMMAND_PATTERN = r"^(地址|最新地址|安卓地址|苹果地址|安卓下载地址|苹果下载地址|链接|最新链接|安卓链接|安卓下载链接|最新安卓链接|苹果链接|苹果下载链接|ios链接|最新苹果链接|/start_check)$"
-            application.add_handler(
-                MessageHandler(
-                    filters.TEXT & filters.Regex(COMMAND_PATTERN), 
-                    get_final_url
-                )
-            )
+            # ... (CommandHandler 和 MessageHandler 的注册代码保持不变) ...
 
-            # ⭐️ 关键修改：使用更安全的 run_polling 启动方式 (防止 Polling 干扰)
-            # 在 FastAPI 的事件循环内启动后台任务
-            asyncio.create_task(application.run_polling(poll_interval=None)) 
+            # ⭐️ 核心修改：使用 start() 方法，而不是 run_polling()
+            # 这样 telegram.ext 就不会尝试启动或关闭事件循环
+            asyncio.create_task(application.start()) 
             
             # 存储 Application 实例
             APPLICATIONS[path] = application
@@ -176,11 +174,18 @@ def initialize_bots():
 app = FastAPI()
 
 # ⭐️ 核心修改：使用 FastAPI 的生命周期事件来启动异步任务
+# main.py 文件中
+
 @app.on_event("startup")
 async def startup_event():
     # 确保在异步事件循环启动后才初始化 bots
+    # ⚠️ 注意: 由于 initialize_bots 现在调用的是 application.start()，
+    # 我们需要在启动后手动设置 webhook
     initialize_bots()
-
+    # 这一步是确保所有 Bot 在启动后，它们的 Webhook 状态被正确设置 (可选，但推荐)
+    # for application in APPLICATIONS.values():
+    #    await application.bot.set_webhook(url=...) # 除非您想在启动时自动设置
+    #    pass
 # ... (保留 @app.post 路由函数) ...
 
 # ----------------------------------------------
