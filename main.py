@@ -1,12 +1,16 @@
 import os
 import logging
-import requests 
 import json 
 import random 
 import string 
 import asyncio
 import re
 from urllib.parse import urlparse, urlunparse 
+
+# 导入 Playwright
+from playwright.async_api import async_playwright
+import requests 
+
 from telegram import Update 
 from telegram.ext import Application, MessageHandler, filters
 from fastapi import FastAPI, Request 
@@ -27,7 +31,7 @@ def generate_random_subdomain(min_len=3, max_len=8):
     return ''.join(random.choice(characters) for i in range(length))
 
 # -------------------------------------------------------------
-# ⭐️ 核心功能函数 (API 获取 A + 静态解析 B + 随机化)
+# ⭐️ 核心功能函数 (使用 Playwright 获取 B 域名)
 # -------------------------------------------------------------
 async def get_final_url(update: Update, context) -> None:
     # 直接使用单机器人的 API_URL
@@ -64,60 +68,36 @@ async def get_final_url(update: Update, context) -> None:
             logger.error(f"API response format incorrect. Data retrieved: {domain_a}")
             return
 
-        logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}. Starting static parsing.")
+        logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}. Starting dynamic parsing (Playwright).")
         
         # ----------------------------------------------
-        # 第二步: 纯 Requests 获取 HTML 并静态解析跳转链接
+        # 第二步: 使用 Playwright 动态解析跳转链接
         # ----------------------------------------------
-        # 增加 allow_redirects=False，手动处理跳转，以确保我们看到 JS 跳转代码
-        page_response = requests.get(domain_a, headers=HEADERS, timeout=10, allow_redirects=False)
-        page_response.raise_for_status()
-        html_content = page_response.text
-        
-        # 1. 尝试查找 JS 跳转 (如 window.location.href = '...' 或 location.replace)
-        js_match = re.search(r'location\.(?:href|replace)\s*=\s*["\'](.*?)["\']', html_content)
-        if js_match:
-            final_url_b = js_match.group(1)
-            logger.info(f"Found JS redirect: {final_url_b}")
-        
-        # 2. 尝试查找 Meta Refresh 跳转 (<meta http-equiv="refresh" content="0; url=...">)
-        if not final_url_b:
-            meta_match = re.search(r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^;]*;\s*url=(.*?)["\']', html_content, re.IGNORECASE)
-            if meta_match:
-                final_url_b = meta_match.group(1).strip()
-                logger.info(f"Found Meta Refresh redirect: {final_url_b}")
-
-        # 3. 新增：尝试查找 HTML 中的下载链接 (找第一个包含 http/https 的 href 链接，通常是下载链接)
-        if not final_url_b:
-            # 匹配 <a href="http/https://..."> 标签，或者 <iframe src="http/https://...">
-            link_match = re.search(r'(?:href|src)\s*=\s*["\'](http[s]?://[^"\']+)["\']', html_content, re.IGNORECASE)
-            if link_match:
-                final_url_b = link_match.group(1)
-                logger.info(f"Found standard HTML link/src: {final_url_b}")
-
-        # 4. 如果仍未找到，使用原始 URL 作为备选
-        if not final_url_b:
-            final_url_b = domain_a
-            logger.info("No static redirect or standard link found. Using Domain A as final URL.")
-        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True) # 启动无头浏览器
+            page = await browser.new_page()
+            
+            # 设置等待，给 JS 足够的时间运行并完成跳转
+            # timeout=15000 确保如果加载太慢也能及时停止
+            await page.goto(domain_a, wait_until="networkidle", timeout=15000)
+            
+            # 获取页面最终跳转到的 URL
+            final_url_b = page.url
+            
+            await browser.close()
+            
+        logger.info(f"Playwright navigated to final URL: {final_url_b}")
         
         # ----------------------------------------------
         # 第三步: 随机化二级域名 (与之前逻辑相同)
         # ----------------------------------------------
         
-        # 确保 final_url_b 是绝对 URL
-        if not final_url_b.startswith("http"):
-             # 使用 domain_a 的协议和网络位置来构造一个完整的 URL
-            base_url = urlparse(domain_a)
-            final_url_b = urlunparse(base_url._replace(path=urlparse(final_url_b).path, query=urlparse(final_url_b).query))
-
-
-        
-        if final_url_b and final_url_b != domain_a: # 只有找到 B 链接才执行随机化，否则跳过
+        if final_url_b.startswith("http"): 
             parsed_url = urlparse(final_url_b)
             netloc_parts = parsed_url.netloc.split('.')
             
-            if len(netloc_parts) >= 2: 
+            # 只有找到 B 链接且 B 链接与 A 链接不同时才执行随机化
+            if final_url_b != domain_a and len(netloc_parts) >= 2: 
                 new_subdomain = generate_random_subdomain(3, 8)
                 netloc_parts[0] = new_subdomain 
                 new_netloc = '.'.join(netloc_parts)
@@ -127,22 +107,19 @@ async def get_final_url(update: Update, context) -> None:
                 logger.info(f"Success! Final URL B (modified): {modified_url_b}")
             else:
                 await update.message.reply_text(f"✅ 本次最新下载链接是：\n{final_url_b}")
-                logger.warning(f"URL structure not suitable for subdomain replacement. Returning original URL.")
-        elif final_url_b == domain_a:
-            # 如果解析失败，返回原始 A 域名，并加上一个警告信息
-            await update.message.reply_text(f"⚠️ 未能检测到有效跳转，返回原始链接（已随机化）:\n{domain_a}")
-            logger.warning(f"Static parsing failed to find redirect. Final URL: {domain_a}")
+                logger.warning(f"URL structure not suitable for subdomain replacement or no redirect detected. Returning original final URL.")
         else:
-             await update.message.reply_text(f"⚠️ 发生了未知解析错误，返回原始链接：\n{domain_a}")
-             logger.warning(f"Unexpected parsing state. Final URL: {domain_a}")
+            await update.message.reply_text(f"⚠️ Playwright 解析失败，返回原始链接：\n{domain_a}")
+            logger.warning(f"Playwright returned an invalid URL: {final_url_b}")
 
 
     except requests.exceptions.RequestException as req_err:
         await update.message.reply_text(f"❌ 网络请求或 API 失败，请检查 API 接口。")
         logger.error(f"Request Error: {req_err}")
     except Exception as e:
-        await update.message.reply_text(f"❌ 发生了意外错误。请联系管理员。")
-        logger.error(f"Unexpected Runtime Error: {e}")
+        # 捕获 Playwright 相关的错误，例如启动失败、超时等
+        await update.message.reply_text(f"❌ 浏览器组件或超时错误，请联系管理员。")
+        logger.error(f"Playwright Runtime Error: {e}")
 
 
 # -------------------------------------------------------------
@@ -210,6 +187,4 @@ async def telegram_webhook(request: Request):
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", 8080))
-    # 注意：如果您的 Render Build Command 使用了 'main:app'，您需要将此文件命名为 main.py 
-    # 或者将 Render Start Command 更改为 'uvicorn single_bot_app:app --host 0.0.0.0 --port $PORT'
     uvicorn.run(app, host="0.0.0.0", port=PORT)
