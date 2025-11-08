@@ -34,17 +34,20 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # ----------------------------------------------
         logger.info(f"Step 1: Requesting API URL: {API_URL}")
         api_response = requests.get(API_URL, headers=HEADERS, timeout=5)
-        api_response.raise_for_status() 
+        api_response.raise_for_status() # 如果状态码不是 200, 则抛出异常
         
-        data = api_response.json()
-        
-        # !!! 重要：这里需要根据实际 API 响应结构来修改 !!!
-        # 假设 A 域名位于 'data' 键下的 'url' 键
-        domain_a = data.get('data', {}).get('url') 
-        
+        # 尝试解析 JSON，如果失败，则认为响应体就是纯文本 A 域名
+        try:
+            data = api_response.json()
+            # 假设 A 域名位于 'data' 键下的 'url' 键。
+            domain_a = data.get('data', {}).get('url') 
+        except json.JSONDecodeError:
+            # 如果不是 JSON，尝试直接将响应文本作为 A 域名
+            domain_a = api_response.text.strip()
+                    
         if not domain_a:
              await update.message.reply_text(f"❌ 链接获取失败：API 响应中未找到 A 域名。")
-             logger.error(f"API response missing A domain: {data}")
+             logger.error(f"API response missing A domain. Response: {api_response.text}")
              return
 
         logger.info(f"Step 2: Successfully retrieved Domain A: {domain_a}")
