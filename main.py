@@ -20,7 +20,7 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # !!! 替换为您的【会发生跳转的原始域名 A】！！！
     DOMAIN_A = "https://owzmz.ivqrrox.com/37mC45B/mdgxmzlkzt" 
     
-    await update.message.reply_text("正在为您获取最新的苹果下载链接，请稍候...")
+    await update.message.reply_text("正在为您获取最新的下载链接，请稍候...")
     
     final_url_b = None
     
@@ -42,7 +42,7 @@ async def get_final_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await browser.close() # 关闭浏览器实例
 
             if final_url_b and final_url_b != DOMAIN_A:
-                await update.message.reply_text(f"✅ 本次最新苹果下载链接是：\n{final_url_b}")
+                await update.message.reply_text(f"✅ 本次最新下载链接是：\n{final_url_b}")
             else:
                 await update.message.reply_text(f"⚠️ 未检测到有效跳转。可能链接是静态的，或加载超时。当前URL: {final_url_b}")
                 logger.warning(f"Playwright finished, but no redirect detected. Final URL: {final_url_b}")
@@ -73,7 +73,7 @@ def main() -> None:
     # -----------------------------------------------------------------
     # ⭐️ 核心修改：使用 Regex 匹配多个中文命令和 /start_check
     # r"^(...)$" 确保用户输入的文本必须完全匹配其中一个命令
-    COMMAND_PATTERN = r"^(苹果链接|ios链接|最新苹果链接|/start_check)$"
+    COMMAND_PATTERN = r"^(安卓|安卓链接|最新安卓链接|苹果链接|ios链接|最新苹果链接|/start_check)$"
     
     application.add_handler(
         MessageHandler(
