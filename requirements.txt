@@ -1,2 +1,3 @@
 python-telegram-bot[webhooks]
-requests
+playwright
+requests  # 仍然保留，以防万一
